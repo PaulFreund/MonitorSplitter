@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MonitorSplitterProductVersion Condition="'$(MonitorSplitterProductVersion)' == ''">0.1.0</MonitorSplitterProductVersion>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(MonitorSplitterBuildTag)' != ''">
+    <ClCompile>
+      <PreprocessorDefinitions>MONITORSPLITTER_PRODUCT_VERSION=&quot;$(MonitorSplitterProductVersion)&quot;;MONITORSPLITTER_BUILD_TAG=&quot;$(MonitorSplitterBuildTag)&quot;;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

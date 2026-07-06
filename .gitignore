@@ -1,0 +1,16 @@
+_upstream/
+.vs/
+out/
+build/
+bin/
+obj/
+x64/
+ARM64/
+MonitorS.*/
+*.ilk
+*.pdb
+*.user
+*.suo
+*.VC.db
+*.opendb
+*.log

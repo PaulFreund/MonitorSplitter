@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="MonitorSplitter"
+    Manufacturer="MonitorSplitter"
+    Version="$(var.ProductVersion)"
+    UpgradeCode="{7F1290A6-8F6B-4E45-A2C5-32E92A3F93F1}"
+    Scope="perMachine">
+
+    <MajorUpgrade
+      AllowSameVersionUpgrades="yes"
+      Schedule="afterInstallValidate"
+      DowngradeErrorMessage="A newer version of MonitorSplitter is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ENABLEAFTERINSTALL" Value="Preserve" />
+    <Property Id="REMOVECONFIG" Value="0" />
+    <Property Id="SKIPPANELRESTORE" Value="1" />
+    <SetProperty
+      Id="ADDLOCAL"
+      Value="MainFeature"
+      Before="CostFinalize"
+      Sequence="both"
+      Condition="NOT Installed" />
+
+    <Feature Id="MainFeature" Title="MonitorSplitter" Level="1">
+      <ComponentGroupRef Id="MonitorSplitterComponents" />
+    </Feature>
+
+    <SetProperty
+      Id="InstallMonitorSplitter"
+      Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\msi-custom-action.ps1&quot; -Install -InstallDir &quot;[INSTALLFOLDER].&quot; -EnableAfterInstall &quot;[ENABLEAFTERINSTALL]&quot;"
+      Before="InstallMonitorSplitter"
+      Sequence="execute" />
+    <SetProperty
+      Id="StopMonitorSplitterRuntime"
+      Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -Command &quot;&amp; { Stop-Service -Name 'MonitorSplitterService' -Force -ErrorAction SilentlyContinue; Get-Process -Name 'MonitorSplitterConfig','MonitorSplitterHost','MonitorSplitterService' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0 }&quot;"
+      Before="StopMonitorSplitterRuntime"
+      Sequence="execute" />
+    <CustomAction
+      Id="InstallMonitorSplitter"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec"
+      Execute="deferred"
+      Return="check"
+      Impersonate="no" />
+
+    <SetProperty
+      Id="UninstallMonitorSplitter"
+      Value="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoProfile -ExecutionPolicy Bypass -File &quot;[INSTALLFOLDER]scripts\msi-custom-action.ps1&quot; -Uninstall -InstallDir &quot;[INSTALLFOLDER].&quot; -RemoveConfig &quot;[REMOVECONFIG]&quot; -SkipPanelRestore &quot;[SKIPPANELRESTORE]&quot;"
+      Before="UninstallMonitorSplitter"
+      Sequence="execute" />
+    <CustomAction
+      Id="UninstallMonitorSplitter"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec"
+      Execute="deferred"
+      Return="check"
+      Impersonate="no" />
+    <CustomAction
+      Id="StopMonitorSplitterRuntime"
+      BinaryRef="Wix4UtilCA_X64"
+      DllEntry="WixQuietExec"
+      Execute="deferred"
+      Return="ignore"
+      Impersonate="no" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopMonitorSplitterRuntime" Before="RemoveFiles" Condition="(NOT REMOVE=&quot;ALL&quot;) OR WIX_UPGRADE_DETECTED" />
+      <Custom Action="InstallMonitorSplitter" After="InstallFiles" Condition="(NOT REMOVE=&quot;ALL&quot;) OR WIX_UPGRADE_DETECTED OR REINSTALL" />
+      <Custom Action="UninstallMonitorSplitter" Before="RemoveFiles" Condition="REMOVE=&quot;ALL&quot; AND NOT WIX_UPGRADE_DETECTED" />
+    </InstallExecuteSequence>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="MonitorSplitter">
+        <Directory Id="BinFolder" Name="bin" />
+        <Directory Id="DriverPackageFolder" Name="driver-package" />
+        <Directory Id="ScriptsFolder" Name="scripts" />
+      </Directory>
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="MonitorSplitterComponents">
+      <Component Id="CmpMonitorSplitterCtl" Directory="BinFolder" Guid="{B6607665-0E5F-4F22-843D-E8C48CE74A42}">
+        <RemoveFile Id="RemoveMonitorSplitterCtlOnInstall" Name="MonitorSplitterCtl.exe" On="install" />
+        <File Id="FileMonitorSplitterCtl" Source="$(var.PackageRoot)\bin\MonitorSplitterCtl.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpMonitorSplitterHost" Directory="BinFolder" Guid="{216BE715-9824-4AF3-B435-8117B2BE8316}">
+        <RemoveFile Id="RemoveMonitorSplitterHostOnInstall" Name="MonitorSplitterHost.exe" On="install" />
+        <File Id="FileMonitorSplitterHost" Source="$(var.PackageRoot)\bin\MonitorSplitterHost.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpMonitorSplitterService" Directory="BinFolder" Guid="{B8DFAE20-0D1B-49EE-A9A8-D6BA8177ED64}">
+        <RemoveFile Id="RemoveMonitorSplitterServiceOnInstall" Name="MonitorSplitterService.exe" On="install" />
+        <File Id="FileMonitorSplitterService" Source="$(var.PackageRoot)\bin\MonitorSplitterService.exe" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpMonitorSplitterConfig" Directory="BinFolder" Guid="{B3F9CB27-2B77-4264-85E2-DBD2CC48EC77}">
+        <RemoveFile Id="RemoveMonitorSplitterConfigOnInstall" Name="MonitorSplitterConfig.exe" On="install" />
+        <File Id="FileMonitorSplitterConfig" Source="$(var.PackageRoot)\bin\MonitorSplitterConfig.exe" KeyPath="yes" />
+      </Component>
+
+      <Component Id="CmpDriverInf" Directory="DriverPackageFolder" Guid="{E13B7C12-3DB1-448F-BC5E-56E40F2D049B}">
+        <RemoveFile Id="RemoveDriverInfOnInstall" Name="MonitorSplitterDriver.inf" On="install" />
+        <File Id="FileDriverInf" Source="$(var.PackageRoot)\driver-package\MonitorSplitterDriver.inf" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpDriverDll" Directory="DriverPackageFolder" Guid="{31CE9F5E-8543-4B68-B83F-22BEF52005ED}">
+        <RemoveFile Id="RemoveDriverDllOnInstall" Name="MonitorSplitterDriver.dll" On="install" />
+        <File Id="FileDriverDll" Source="$(var.PackageRoot)\driver-package\MonitorSplitterDriver.dll" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpDriverCat" Directory="DriverPackageFolder" Guid="{84C28716-1457-4115-A022-D7F645DF662B}">
+        <RemoveFile Id="RemoveDriverCatOnInstall" Name="monitorsplitterdriver.cat" On="install" />
+        <File Id="FileDriverCat" Source="$(var.PackageRoot)\driver-package\monitorsplitterdriver.cat" KeyPath="yes" />
+      </Component>
+
+      <Component Id="CmpVerifyInstallPs1" Directory="ScriptsFolder" Guid="{42EC6CB6-794A-44CC-8CD8-DB41C680EC66}">
+        <RemoveFile Id="RemoveVerifyInstallPs1OnInstall" Name="verify-install.ps1" On="install" />
+        <File Id="FileVerifyInstallPs1" Source="$(var.PackageRoot)\scripts\verify-install.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpInstallDriverPs1" Directory="ScriptsFolder" Guid="{12701553-556E-43E6-82DF-446EA4404C80}">
+        <RemoveFile Id="RemoveInstallDriverPs1OnInstall" Name="install-driver.ps1" On="install" />
+        <File Id="FileInstallDriverPs1" Source="$(var.PackageRoot)\scripts\install-driver.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpInstallServicePs1" Directory="ScriptsFolder" Guid="{81568866-DCD2-47BB-A583-1C462428D64C}">
+        <RemoveFile Id="RemoveInstallServicePs1OnInstall" Name="install-service.ps1" On="install" />
+        <File Id="FileInstallServicePs1" Source="$(var.PackageRoot)\scripts\install-service.ps1" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpMsiCustomActionPs1" Directory="ScriptsFolder" Guid="{DB9EFE80-40D9-4B8A-BC58-29E1696E6774}">
+        <RemoveFile Id="RemoveMsiCustomActionPs1OnInstall" Name="msi-custom-action.ps1" On="install" />
+        <File Id="FileMsiCustomActionPs1" Source="$(var.PackageRoot)\scripts\msi-custom-action.ps1" KeyPath="yes" />
+      </Component>
+
+      <Component Id="CmpReadme" Directory="INSTALLFOLDER" Guid="{7C99A36E-E026-4E2A-A8D2-6D2840BC03B3}">
+        <RemoveFile Id="RemoveReadmeOnInstall" Name="README.md" On="install" />
+        <File Id="FileReadme" Source="$(var.PackageRoot)\README.md" KeyPath="yes" />
+      </Component>
+      <Component Id="CmpLicense" Directory="INSTALLFOLDER" Guid="{FFDE627B-0232-46B6-96C5-17072C9F2C3D}">
+        <RemoveFile Id="RemoveLicenseOnInstall" Name="LICENSE" On="install" />
+        <File Id="FileLicense" Source="$(var.PackageRoot)\LICENSE" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>
