@@ -1149,8 +1149,16 @@ inline bool HostStatusHealthy(const std::wstring& status, std::wstring* reason =
 
     unsigned long long healthyFrameSourceCount = 0;
     unsigned long long publishingFrameSourceCount = 0;
+    unsigned long long sharedFrameUnhealthyDurationMs = 0;
+    unsigned long long sharedFrameUnhealthyGraceMs = 0;
+    const bool sharedFrameTransientUnhealthy =
+        status.find(L"\"sharedFrameTransientUnhealthy\":true") != std::wstring::npos &&
+        TryReadUnsignedJsonField(status, L"sharedFrameUnhealthyDurationMs", sharedFrameUnhealthyDurationMs) &&
+        TryReadUnsignedJsonField(status, L"sharedFrameUnhealthyGraceMs", sharedFrameUnhealthyGraceMs) &&
+        sharedFrameUnhealthyGraceMs > 0 &&
+        sharedFrameUnhealthyDurationMs < sharedFrameUnhealthyGraceMs;
     if (!TryReadUnsignedJsonField(status, L"healthyFrameSourceCount", healthyFrameSourceCount) ||
-        healthyFrameSourceCount < expectedSourceCount)
+        (healthyFrameSourceCount < expectedSourceCount && !sharedFrameTransientUnhealthy))
     {
         return fail(L"not all split frame sources are healthy");
     }
@@ -1211,6 +1219,35 @@ inline bool HostStatusHealthy(const std::wstring& status, std::wstring* reason =
     if (reason != nullptr)
     {
         reason->clear();
+    }
+    return true;
+}
+
+inline bool CurrentHostStatusHealthy(std::wstring* reason = nullptr)
+{
+    const auto status = MonitorSplitter::Trim(ReadTextFile(HostStatusPath()));
+    return HostStatusHealthy(status, reason);
+}
+
+inline bool CurrentHostStatusNeedsRecovery(std::wstring* reason = nullptr)
+{
+    std::wstring healthReason;
+    if (CurrentHostStatusHealthy(&healthReason))
+    {
+        if (reason != nullptr)
+        {
+            reason->clear();
+        }
+        return false;
+    }
+
+    if (healthReason.empty())
+    {
+        healthReason = L"direct host is not healthy";
+    }
+    if (reason != nullptr)
+    {
+        *reason = healthReason;
     }
     return true;
 }

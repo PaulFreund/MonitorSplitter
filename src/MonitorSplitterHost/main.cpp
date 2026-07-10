@@ -221,12 +221,18 @@ struct AppState
     UINT64 DisplayTaskFailures = 0;
     UINT64 DirectKeepaliveFrames = 0;
     UINT64 DirectPollingCopyFrames = 0;
+    UINT64 DirectWaitForVBlankFailures = 0;
+    HRESULT LastDirectWaitForVBlankResult = S_OK;
     DWORD LastDirectSubmitTick = 0;
     UINT64 DirectInLoopRecoveries = 0;
     HRESULT LastDirectRecoveryResult = S_OK;
+    std::wstring LastDirectRecoveryMessage;
     UINT64 DirectWarmupFramesPresented = 0;
     UINT64 ScanoutKickFailures = 0;
     HRESULT LastScanoutKickResult = S_OK;
+    UINT64 SharedFrameHealthFaults = 0;
+    DWORD SharedFrameUnhealthySinceTick = 0;
+    std::wstring LastSharedFrameHealthIssue;
     HANDLE HostRunningMutex = nullptr;
     HANDLE HostStopEvent = nullptr;
     std::wstring HostMode = L"starting";
@@ -319,6 +325,7 @@ constexpr wchar_t kHostRunningMutexName[] = L"Local\\MonitorSplitter.HostRunning
 constexpr wchar_t kHostStopEventName[] = L"Local\\MonitorSplitter.HostStop";
 constexpr DWORD kDirectKeepaliveIntervalMs = 1000;
 constexpr DWORD kDirectPollingCopyIntervalMs = 16;
+constexpr DWORD kDirectSharedFrameUnhealthyGraceMs = 5000;
 
 int Width(const RECT& rect)
 {
@@ -792,10 +799,13 @@ void AppendDirectStatusJson(std::wstringstream& status, const AppState& state)
     status << L",\"displayTaskFailures\":" << state.DisplayTaskFailures;
     status << L",\"keepaliveFrames\":" << state.DirectKeepaliveFrames;
     status << L",\"pollingCopyFrames\":" << state.DirectPollingCopyFrames;
+    status << L",\"waitForVBlankFailures\":" << state.DirectWaitForVBlankFailures;
+    status << L",\"lastWaitForVBlankResult\":\"" << HResultCode(state.LastDirectWaitForVBlankResult) << L"\"";
     status << L",\"lastSubmitTick\":" << state.LastDirectSubmitTick;
     status << L",\"keepaliveIntervalMs\":" << kDirectKeepaliveIntervalMs;
     status << L",\"inLoopRecoveries\":" << state.DirectInLoopRecoveries;
     status << L",\"lastRecoveryHresult\":\"" << HResultCode(state.LastDirectRecoveryResult) << L"\"";
+    status << L",\"lastRecoveryMessage\":\"" << JsonEscape(state.LastDirectRecoveryMessage) << L"\"";
     status << L",\"warmupFramesPresented\":" << state.DirectWarmupFramesPresented;
     status << L",\"scanoutKickFailures\":" << state.ScanoutKickFailures;
     status << L",\"lastScanoutKickResult\":\"" << HResultCode(state.LastScanoutKickResult) << L"\"";
@@ -859,6 +869,19 @@ void WriteHostStatus(AppState& state, const std::wstring& mode, const std::wstri
     status << L",\"expectedSourceCount\":" << state.Layout.Monitors.size();
     status << L",\"healthyFrameSourceCount\":" << healthyFrameSourceCount;
     status << L",\"publishingFrameSourceCount\":" << publishingFrameSourceCount;
+    const DWORD sharedFrameUnhealthyDurationMs = state.SharedFrameUnhealthySinceTick == 0
+        ? 0
+        : static_cast<DWORD>(state.LastHostStatusTick - state.SharedFrameUnhealthySinceTick);
+    const bool sharedFrameTransientUnhealthy =
+        state.DirectMode &&
+        state.UsingSharedFrames &&
+        state.SharedFrameUnhealthySinceTick != 0 &&
+        sharedFrameUnhealthyDurationMs < kDirectSharedFrameUnhealthyGraceMs;
+    status << L",\"sharedFrameHealthFaults\":" << state.SharedFrameHealthFaults;
+    status << L",\"sharedFrameTransientUnhealthy\":" << (sharedFrameTransientUnhealthy ? L"true" : L"false");
+    status << L",\"sharedFrameUnhealthyDurationMs\":" << sharedFrameUnhealthyDurationMs;
+    status << L",\"sharedFrameUnhealthyGraceMs\":" << kDirectSharedFrameUnhealthyGraceMs;
+    status << L",\"lastSharedFrameHealthIssue\":\"" << JsonEscape(state.LastSharedFrameHealthIssue) << L"\"";
     status << L",\"usingSharedFrames\":" << (state.UsingSharedFrames ? L"true" : L"false");
     status << L",\"sharedFrameStartAttempts\":" << state.SharedFrameStartAttempts;
     status << L",\"lastSharedFrameStartResult\":\"" << HResultCode(state.LastSharedFrameStartResult) << L"\"";
@@ -1418,6 +1441,9 @@ void StartFrameSources(AppState& state)
     state.SharedFrameCopySuccesses = 0;
     state.SharedFrameCopyFailures = 0;
     state.LastSharedFrameCopyResult = S_OK;
+    state.SharedFrameHealthFaults = 0;
+    state.SharedFrameUnhealthySinceTick = 0;
+    state.LastSharedFrameHealthIssue.clear();
 
     if (state.DirectMode)
     {
@@ -1460,7 +1486,32 @@ bool FrameSourcesHealthy(const AppState& state)
 
 void DemoteUnhealthySharedFrames(AppState& state)
 {
-    if (!state.UsingSharedFrames || FrameSourcesHealthy(state))
+    if (!state.UsingSharedFrames)
+    {
+        return;
+    }
+
+    if (FrameSourcesHealthy(state))
+    {
+        state.SharedFrameUnhealthySinceTick = 0;
+        state.LastSharedFrameHealthIssue.clear();
+        return;
+    }
+
+    const DWORD now = GetTickCount();
+    state.SharedFrameHealthFaults++;
+    if (state.SharedFrameUnhealthySinceTick == 0)
+    {
+        state.SharedFrameUnhealthySinceTick = now;
+    }
+
+    const DWORD unhealthyDurationMs = static_cast<DWORD>(now - state.SharedFrameUnhealthySinceTick);
+    state.LastSharedFrameHealthIssue =
+        L"driver shared textures are temporarily unhealthy for " +
+        std::to_wstring(unhealthyDurationMs) +
+        L" ms; retaining last scanout frame";
+
+    if (state.DirectMode && unhealthyDurationMs < kDirectSharedFrameUnhealthyGraceMs)
     {
         return;
     }
@@ -1470,7 +1521,7 @@ void DemoteUnhealthySharedFrames(AppState& state)
     state.LastSharedFrameRetryTick = GetTickCount();
     if (state.DirectMode)
     {
-        throw winrt::hresult_error(E_FAIL, L"driver shared textures stopped publishing.");
+        throw winrt::hresult_error(E_FAIL, L"driver shared textures stopped publishing beyond the direct scanout grace period.");
     }
     StartCaptureFrameSources(state, L"driver shared textures stopped publishing; using Windows Graphics Capture fallback");
 }
@@ -3669,7 +3720,17 @@ int RunDirectHost()
             MaybeRefreshHostStatus(g_state);
             if (g_state.DirectDevice != nullptr && g_state.DirectSource != nullptr)
             {
-                g_state.DirectDevice.WaitForVBlank(g_state.DirectSource);
+                try
+                {
+                    g_state.DirectDevice.WaitForVBlank(g_state.DirectSource);
+                    g_state.LastDirectWaitForVBlankResult = S_OK;
+                }
+                catch (winrt::hresult_error const& waitError)
+                {
+                    g_state.DirectWaitForVBlankFailures++;
+                    g_state.LastDirectWaitForVBlankResult = static_cast<HRESULT>(waitError.code());
+                    Sleep(8);
+                }
             }
             else
             {
@@ -3689,6 +3750,7 @@ int RunDirectHost()
                 L"\nDirect render-loop recovery #" +
                 std::to_wstring(g_state.DirectInLoopRecoveries) +
                 L".";
+            g_state.LastDirectRecoveryMessage = statusMessage;
             if (!IsHostStopRequested(g_state) && recoveryAttempts < 3)
             {
                 recoveryAttempts++;

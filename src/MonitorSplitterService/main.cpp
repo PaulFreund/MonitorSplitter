@@ -865,8 +865,8 @@ void RestartSplitter(
         AppendLog(L"start during restart failed: " + startReason);
         if (g_consecutiveRestartFailures >= kMaxConsecutiveRestartFailures)
         {
-            g_restartSuppressed = true;
-            AppendLog(L"restart budget exhausted; waiting for a new explicit restart request, logon, unlock, or wake event");
+            g_consecutiveRestartFailures = 0;
+            AppendLog(L"restart budget exhausted; continuing automatic recovery after failed-restart cooldown");
         }
     }
     else

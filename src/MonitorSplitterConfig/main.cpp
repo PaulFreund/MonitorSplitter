@@ -339,8 +339,13 @@ void RefreshAll(bool verbose)
 
 void OpenDisplaySettings();
 
-bool ApplyConfiguration()
+bool ApplyConfiguration(bool* restartRequested = nullptr)
 {
+    if (restartRequested != nullptr)
+    {
+        *restartRequested = false;
+    }
+
     SetManualText(kDefaultManualText);
 
     const LRESULT selected = SendMessageW(g_monitorCombo, CB_GETCURSEL, 0, 0);
@@ -383,7 +388,11 @@ bool ApplyConfiguration()
         !EqualsIgnoreCase(previousEdidNameBase, prepared.EdidNameBase);
     if (changed)
     {
-        Control::RequestServiceRestart(true);
+        const bool requested = Control::RequestServiceRestart(true);
+        if (restartRequested != nullptr)
+        {
+            *restartRequested = requested;
+        }
     }
     else
     {
@@ -395,9 +404,10 @@ bool ApplyConfiguration()
 
 void SetDesiredState(bool enabled)
 {
+    bool configurationRestartRequested = false;
     if (enabled)
     {
-        if (!ApplyConfiguration())
+        if (!ApplyConfiguration(&configurationRestartRequested))
         {
             AppendLog(L"Enable cancelled because target/layout could not be applied.");
             RefreshState(false);
@@ -439,9 +449,37 @@ void SetDesiredState(bool enabled)
     {
         SetManualText(kDefaultManualText);
         Control::StartServiceIfNeeded();
+        if (configurationRestartRequested)
+        {
+            AppendLog(L"Requested enable; configuration change already requested recovery.");
+        }
+        else
+        {
+            std::wstring recoveryReason;
+            if (Control::CurrentHostStatusNeedsRecovery(&recoveryReason))
+            {
+                if (Control::RequestServiceRestart())
+                {
+                    AppendLog(L"Requested enable and recovery: " + recoveryReason);
+                }
+                else
+                {
+                    MessageBoxW(g_window, L"Could not write service recovery request.", kAppTitle, MB_ICONERROR);
+                    AppendLog(L"Enable recovery request failed.");
+                }
+            }
+            else
+            {
+                Control::SignalStackWake();
+                AppendLog(L"Requested enable; splitter already healthy.");
+            }
+        }
     }
-    Control::SignalStackWake();
-    AppendLog(enabled ? L"Requested enable." : L"Requested disable.");
+    else
+    {
+        Control::SignalStackWake();
+        AppendLog(L"Requested disable.");
+    }
     if (!enabled)
     {
         SetManualText(kPanelRestoreManualText);

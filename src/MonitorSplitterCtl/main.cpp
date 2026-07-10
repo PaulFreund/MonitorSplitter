@@ -1428,8 +1428,25 @@ int EnableDirect()
             return 1;
         }
         MonitorSplitter::Control::StartServiceIfNeeded();
-        MonitorSplitter::Control::SignalStackWake();
-        std::wcout << L"MonitorSplitter enable requested via service.\n";
+
+        std::wstring recoveryReason;
+        if (MonitorSplitter::Control::CurrentHostStatusNeedsRecovery(&recoveryReason))
+        {
+            if (!MonitorSplitter::Control::RequestServiceRestart())
+            {
+                std::wcerr << L"Could not write service recovery request.\n";
+                return 1;
+            }
+
+            std::wcout << L"MonitorSplitter enable requested via service; recovery requested: "
+                       << recoveryReason
+                       << L".\n";
+        }
+        else
+        {
+            MonitorSplitter::Control::SignalStackWake();
+            std::wcout << L"MonitorSplitter enable requested via service; splitter already healthy.\n";
+        }
         return 0;
     }
 
